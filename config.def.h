@@ -5,8 +5,12 @@
  *
  * font: see http://freedesktop.org/software/fontconfig/fontconfig-user.html
  */
-static char *font = "monospace:pixelsize=10:antialias=true:autohint=true";
-static char *font2[] = { "JoyPixels:pixelsize=10:antialias=true:autohint=true" };
+/* static char *font = "Liberation Mono:pixelsize=12:antialias=true:autohint=true"; */
+static char *font = "Cascadia Code:size=12:antialias=true:autohint=true";
+static char *font2[] = {
+	"Joy Pixels:size=12:antialias=true:autohint=true",
+	"Material Design Icons-Regular:size=12",
+};
 static int borderpx = 2;
 
 /*
@@ -35,7 +39,7 @@ static float chscale = 1.0;
  *
  * More advanced example: L" `'\"()[]{}"
  */
-wchar_t *worddelimiters = L" `'\"()[]{}";
+wchar_t *worddelimiters = L" ";
 
 /* selection timeouts (in milliseconds) */
 static unsigned int doubleclicktimeout = 300;
@@ -61,7 +65,7 @@ static double maxlatency = 33;
  * blinking timeout (set to 0 to disable blinking) for the terminal blinking
  * attribute.
  */
-static unsigned int blinktimeout = 800;
+static unsigned int blinktimeout = 0;
 
 /*
  * thickness of underline and bar cursors
@@ -95,32 +99,35 @@ char *termname = "st-256color";
 unsigned int tabspaces = 8;
 
 /* bg opacity */
-float alpha = 0.8;
+float alpha = 1.0;
 
 /* Terminal colors (16 first used in escape sequence) */
 static const char *colorname[] = {
 	/* 8 normal colors */
-	"black",
-	"red3",
-	"green3",
-	"yellow3",
-	"blue2",
-	"magenta3",
-	"cyan3",
-	"gray90",
+	"#3b4252",
+	"#bf616a",
+	"#a3be8c",
+	"#ebcb8b",
+	"#81a1c1",
+	"#b48ead",
+	"#88c0d0",
+	"#e5e8f0",
+
 	/* 8 bright colors */
-	"gray50",
-	"red",
-	"green",
-	"yellow",
-	"#5c5cff",
-	"magenta",
-	"cyan",
-	"white",
-	[255] - 0,
+	"#4c566a",
+	"#bf616a",
+	"#a3be8c",
+	"#ebcb8b",
+	"#81a1c1",
+	"#b48ead",
+	"#8fbcbb",
+	"#eceff4",
+
+	[255] = 0,
+
 	/* more colors can be added after 255 to use with DefaultXX */
-	"#ffffff",
-	"#000000"
+	"#d8dee9",
+	"#2e3440",
 };
 
 
@@ -170,53 +177,15 @@ static unsigned int defaultattr = 11;
 static uint forcemousemod = ShiftMask;
 
 /*
- * Xresources preferences to load at startup
- */
-ResourcePref resources[] = {
-	{ "font",         STRING,  &font },
-	{ "font2",        STRING,  &font2 },
-	{ "color0",       STRING,  &colorname[0] },
-	{ "color1",       STRING,  &colorname[1] },
-	{ "color2",       STRING,  &colorname[2] },
-	{ "color3",       STRING,  &colorname[3] },
-	{ "color4",       STRING,  &colorname[4] },
-	{ "color5",       STRING,  &colorname[5] },
-	{ "color6",       STRING,  &colorname[6] },
-	{ "color7",       STRING,  &colorname[7] },
-	{ "color8",       STRING,  &colorname[8] },
-	{ "color9",       STRING,  &colorname[9] },
-	{ "color10",      STRING,  &colorname[10] },
-	{ "color11",      STRING,  &colorname[11] },
-	{ "color12",      STRING,  &colorname[12] },
-	{ "color13",      STRING,  &colorname[13] },
-	{ "color14",      STRING,  &colorname[14] },
-	{ "color15",      STRING,  &colorname[15] },
-	{ "foreground",   STRING,  &colorname[256] },
-	{ "background",   STRING,  &colorname[257] },
-	{ "cursorColor",  STRING,  &colorname[258] },
-	{ "termname",     STRING,  &termname },
-	{ "shell",        STRING,  &shell },
-	{ "minlatency",   INTEGER, &minlatency },
-	{ "maxlatency",   INTEGER, &maxlatency },
-	{ "blinktimeout", INTEGER, &blinktimeout },
-	{ "bellvolume",   INTEGER, &bellvolume },
-	{ "tabspaces",    INTEGER, &tabspaces },
-	{ "borderpx",     INTEGER, &borderpx },
-	{ "cwscale",      FLOAT,   &cwscale },
-	{ "chscale",      FLOAT,   &chscale },
-	{ "alpha",        FLOAT,   &alpha },
-};
-
-/*
  * Internal mouse shortcuts.
  * Beware that overloading Button1 will disable the selection.
  */
 const unsigned int mousescrollincrement = 3;
 static MouseShortcut mshortcuts[] = {
 	/* mask                 button   function        argument       release */
-	{ XK_ANY_MOD,           Button4, kscrollup,      {.i = mousescrollincrement } },
-	{ XK_ANY_MOD,           Button5, kscrolldown,    {.i = mousescrollincrement } },
-	{ XK_ANY_MOD,           Button3, selpaste,       {.i = 0}, 1 },
+	{ ShiftMask,            Button4, kscrollup,      {.i = mousescrollincrement} },
+	{ ShiftMask,            Button5, kscrolldown,    {.i = mousescrollincrement} },
+	{ XK_ANY_MOD,           Button2, selpaste,       {.i = 0},      1 },
 	{ ShiftMask,            Button4, ttysend,        {.s = "\033[5;2~"} },
 	{ XK_ANY_MOD,           Button4, ttysend,        {.s = "\031"} },
 	{ ShiftMask,            Button5, ttysend,        {.s = "\033[6;2~"} },
@@ -226,19 +195,20 @@ static MouseShortcut mshortcuts[] = {
 /* Internal keyboard shortcuts. */
 #define MODKEY Mod1Mask
 #define TERMMOD (ControlMask|ShiftMask)
+
 static Shortcut shortcuts[] = {
-	/* mask                  keysym          function        argument */
-	{ XK_ANY_MOD,            XK_Break,       sendbreak,      {.i =  0} },
-	{ TERMMOD,               XK_C,           clipcopy,       {.i =  0} },
-	{ TERMMOD,               XK_V,           clippaste,      {.i =  0} },
-	{ XK_ANY_MOD,            XK_Num_Lock,    numlock,        {.i =  0} },
-	{ MODKEY,                XK_k,           kscrollup,      {.i =  1} },
-	{ MODKEY,                XK_j,           kscrolldown,    {.i =  1} },
-	{ MODKEY,                XK_u,           kscrollup,      {.i = -1} },
-	{ MODKEY,                XK_d,           kscrolldown,    {.i = -1} },
-	{ ControlMask,           XK_equal,       zoom,           {.f = +1} },
-	{ ControlMask,           XK_minus,       zoom,           {.f = -1} },
-	{ ControlMask,           XK_0,           zoomreset,      {.f =  0} },
+	/* mask                 keysym          function        argument */
+	{ XK_ANY_MOD,           XK_Break,       sendbreak,      {.i =  0} },
+	{ ControlMask,          XK_equal,       zoom,           {.f = +1} },
+	{ ControlMask,          XK_minus,       zoom,           {.f = -1} },
+	{ ControlMask,          XK_0,           zoomreset,      {.f =  0} },
+	{ TERMMOD,              XK_C,           clipcopy,       {.i =  0} },
+	{ TERMMOD,              XK_V,           clippaste,      {.i =  0} },
+	{ TERMMOD,              XK_Num_Lock,    numlock,        {.i =  0} },
+	{ MODKEY,               XK_u,           kscrollup,      {.i = -1} },
+	{ MODKEY,               XK_d,           kscrolldown,    {.i = -1} },
+	{ MODKEY,               XK_k,           kscrollup,      {.i =  1} },
+	{ MODKEY,               XK_j,           kscrolldown,    {.i =  1} },
 };
 
 /*
