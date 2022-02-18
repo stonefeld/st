@@ -160,6 +160,7 @@ typedef struct {
 } STREscape;
 
 static void execsh(char *, char **);
+static char *getcwd_by_pid(pid_t pid);
 static void stty(char **);
 static void sigchld(int);
 static void ttywriteraw(const char *, size_t);
@@ -1029,7 +1030,7 @@ treset(void)
 {
 	uint i;
 
-	term.c = (TCursor) {{
+	term.c = (TCursor){{
 		.mode = ATTR_NULL,
 		.fg = defaultfg,
 		.bg = defaultbg
@@ -1055,7 +1056,7 @@ treset(void)
 void
 tnew(int col, int row)
 {
-	term = (Term) { .c = { .attr = { .fg = defaultfg, .bg = defaultbg } } };
+	term = (Term){ .c = { .attr = { .fg = defaultfg, .bg = defaultbg } } };
 	tresize(col, row);
 	treset();
 }
@@ -1074,6 +1075,26 @@ tswapscreen(void)
 	term.alt = tmp;
 	term.mode ^= MODE_ALTSCREEN;
 	tfulldirt();
+}
+
+void
+newterm(const Arg* a)
+{
+	switch (fork()) {
+	case -1:
+		die("fork failed: %s\n", strerror(errno));
+		break;
+	case 0:
+		chdir(getcwd_by_pid(pid));
+		execlp("st", "./st", NULL);
+		break;
+	}
+}
+
+static char *getcwd_by_pid(pid_t pid) {
+	char buf[32];
+	snprintf(buf, sizeof buf, "/proc/%d/cwd", pid);
+	return realpath(buf, NULL);
 }
 
 void
@@ -1289,6 +1310,9 @@ tsetchar(Rune u, const Glyph *attr, int x, int y)
 	term.dirty[y] = 1;
 	term.line[y][x] = *attr;
 	term.line[y][x].u = u;
+
+	if (isboxdraw(u))
+		term.line[y][x].mode |= ATTR_BOXDRAW;
 }
 
 void
@@ -1910,6 +1934,42 @@ csireset(void)
 }
 
 void
+osc4_color_response(int num)
+{
+	int n;
+	char buf[32];
+	unsigned char r, g, b;
+
+	if (xgetcolor(num, &r, &g, &b)) {
+		fprintf(stderr, "erresc: failed to fetch osc4 color %d\n", num);
+		return;
+	}
+
+	n = snprintf(buf, sizeof buf, "\033]4;%d;rgb:%02x%02x/%02x%02x/%02x%02x\007",
+		     num, r, r, g, g, b, b);
+
+	ttywrite(buf, n, 1);
+}
+
+void
+osc_color_response(int index, int num)
+{
+	int n;
+	char buf[32];
+	unsigned char r, g, b;
+
+	if (xgetcolor(index, &r, &g, &b)) {
+		fprintf(stderr, "erresc: failed to fetch osc color %d\n", index);
+		return;
+	}
+
+	n = snprintf(buf, sizeof buf, "\033]%d;rgb:%02x%02x/%02x%02x/%02x%02x\007",
+		     num, r, r, g, g, b, b);
+
+	ttywrite(buf, n, 1);
+}
+
+void
 strhandle(void)
 {
 	char *p = NULL, *dec;
@@ -1947,14 +2007,56 @@ strhandle(void)
 				}
 			}
 			return;
+		case 10:
+			if (narg < 2)
+				break;
+
+			p = strescseq.args[1];
+
+			if (!strcmp(p, "?"))
+				osc_color_response(defaultfg, 10);
+			else if (xsetcolorname(defaultfg, p))
+				fprintf(stderr, "erresc: invalid foreground color: %s\n", p);
+			else
+				tfulldirt();
+			return;
+		case 11:
+			if (narg < 2)
+				break;
+
+			p = strescseq.args[1];
+
+			if (!strcmp(p, "?"))
+				osc_color_response(defaultbg, 11);
+			else if (xsetcolorname(defaultbg, p))
+				fprintf(stderr, "erresc: invalid background color: %s\n", p);
+			else
+				tfulldirt();
+			return;
+		case 12:
+			if (narg < 2)
+				break;
+
+			p = strescseq.args[1];
+
+			if (!strcmp(p, "?"))
+				osc_color_response(defaultcs, 12);
+			else if (xsetcolorname(defaultcs, p))
+				fprintf(stderr, "erresc: invalid cursor color: %s\n", p);
+			else
+				tfulldirt();
+			return;
 		case 4: /* color set */
 			if (narg < 3)
 				break;
 			p = strescseq.args[2];
 			/* FALLTHROUGH */
-		case 104: /* color reset, here p = NULL */
+		case 104: /* color reset */
 			j = (narg > 1) ? atoi(strescseq.args[1]) : -1;
-			if (xsetcolorname(j, p)) {
+
+			if (p && !strcmp(p, "?"))
+				osc4_color_response(j);
+			else if (xsetcolorname(j, p)) {
 				if (par == 104 && narg <= 1)
 					return; /* color reset without parameter */
 				fprintf(stderr, "erresc: invalid color j=%d, p=%s\n",
@@ -1964,7 +2066,7 @@ strhandle(void)
 				 * TODO if defaultbg color is changed, borders
 				 * are dirty
 				 */
-				redraw();
+				tfulldirt();
 			}
 			return;
 		}
@@ -2034,7 +2136,7 @@ strdump(void)
 void
 strreset(void)
 {
-	strescseq = (STREscape) {
+	strescseq = (STREscape){
 		.buf = xrealloc(strescseq.buf, STR_BUF_SIZ),
 		.siz = STR_BUF_SIZ,
 	};
@@ -2496,6 +2598,10 @@ check_control_code:
 	if (width == 2) {
 		gp->mode |= ATTR_WIDE;
 		if (term.c.x+1 < term.col) {
+			if (gp[1].mode == ATTR_WIDE && term.c.x+2 < term.col) {
+				gp[2].u = ' ';
+				gp[2].mode &= ~ATTR_WDUMMY;
+			}
 			gp[1].u = '\0';
 			gp[1].mode = ATTR_WDUMMY;
 		}
